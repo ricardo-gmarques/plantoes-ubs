@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plantões UBS</title>
+
+<style>
+body{
+  font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+  background:#f2f2f7;
+  margin:0;
+  padding:12px;
+  display:flex;
+  justify-content:center;
+}
+.app{width:100%;max-width:420px}
+h2,h3{text-align:center}
+
+input,select,textarea,button{
+  width:100%;
+  padding:12px;
+  margin:6px 0;
+  font-size:16px;
+  border-radius:12px;
+  box-sizing:border-box;
+}
+
+button{background:#007aff;color:#fff;border:none}
+.delete{background:#ff3b30}
+.cancel{background:#8e8e93}
+
+.card{
+  background:#fff;
+  padding:14px;
+  border-radius:16px;
+  margin-top:12px;
+}
+
+.check{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin:4px 0;
+}
+.check input{width:auto}
+
+.obs{font-size:13px;color:#666;margin-top:4px}
+
+/* MODAIS */
+.modal{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.4);
+  justify-content:center;
+  align-items:center;
+}
+.box{
+  background:#fff;
+  width:90%;
+  max-width:380px;
+  max-height:80vh;
+  overflow:auto;
+  border-radius:16px;
+  padding:14px;
+}
+
+.item{border-bottom:1px solid #eee;padding:8px 0}
+</style>
+</head>
+
+<body>
+<div class="app">
+
+<h2>📆 Plantões UBS</h2>
+
+<!-- CADASTRO -->
+<div class="card">
+  <input type="date" id="data">
+  <select id="local">
+    <option>São Bento</option>
+    <option>Laranjeiras</option>
+    <option>Julio de Mesquita</option>
+  </select>
+  <input type="time" id="inicio">
+  <input type="time" id="fim">
+  <textarea id="obs" placeholder="Observação"></textarea>
+
+  <button onclick="salvar()">Salvar</button>
+  <button id="btnCancelar" class="cancel" style="display:none" onclick="cancelarEdicao()">Cancelar edição</button>
+</div>
+
+<!-- BOTÕES -->
+<div class="card">
+  <button onclick="abrirVisual()">👁 Visualizar plantões</button>
+  <button onclick="abrirGerenciar()">⚙️ Gerenciar plantões</button>
+</div>
+
+<!-- RELATÓRIO -->
+<h3>📊 Relatório</h3>
+<div class="card">
+  <input type="month" id="mesRel" onchange="atualizarRelatorio()">
+  <div id="relatorio"></div>
+</div>
+
+<!-- MODAL VISUALIZAR -->
+<div class="modal" id="modalVisual">
+  <div class="box">
+    <h3>Visualização rápida</h3>
+    <input type="month" id="filtroVisual" onchange="renderVisual()">
+    <div id="listaVisual"></div>
+    <button class="cancel" onclick="fecharVisual()">Fechar</button>
+  </div>
+</div>
+
+<!-- MODAL GERENCIAR -->
+<div class="modal" id="modalGerenciar">
+  <div class="box">
+    <h3>Gerenciar</h3>
+    <input type="text" id="pesquisaGer" placeholder="Pesquisar data, local, observação" oninput="renderGerenciar()">
+    <div id="listaGerenciar"></div>
+    <button class="cancel" onclick="fecharGerenciar()">Fechar</button>
+  </div>
+</div>
+
+</div>
+
+<script>
+let plantoes = JSON.parse(localStorage.getItem("plantoes")||"[]");
+let editandoId=null;
+
+function salvarLS(){
+  localStorage.setItem("plantoes",JSON.stringify(plantoes));
+}
+
+/* DIA DA SEMANA */
+function diaSemana(data){
+  const dias=["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+  return dias[new Date(data+"T00:00").getDay()];
+}
+
+/* HORAS */
+function horas(inicio,fim){
+  let [h1,m1]=inicio.split(":").map(Number);
+  let [h2,m2]=fim.split(":").map(Number);
+  let a=h1*60+m1, b=h2*60+m2;
+  if(b<=a) b+=1440;
+  return ((b-a)/60).toFixed(1);
+}
+
+/* SALVAR */
+function salvar(){
+  if(!data.value||!inicio.value||!fim.value) return alert("Preencha tudo");
+
+  if(editandoId){
+    let p=plantoes.find(x=>x.id===editandoId);
+    Object.assign(p,{
+      data:data.value,
+      local:local.value,
+      inicio:inicio.value,
+      fim:fim.value,
+      obs:obs.value
+    });
+  } else {
+    plantoes.push({
+      id:Date.now(),
+      data:data.value,
+      local:local.value,
+      inicio:inicio.value,
+      fim:fim.value,
+      obs:obs.value,
+      cumprido:false,
+      cem:false
+    });
+  }
+
+  salvarLS();
+  cancelarEdicao();
+  atualizarRelatorio();
+  renderTudo();
+}
+
+/* EDITAR */
+function editar(id){
+  let p=plantoes.find(x=>x.id===id);
+  data.value=p.data;
+  local.value=p.local;
+  inicio.value=p.inicio;
+  fim.value=p.fim;
+  obs.value=p.obs||"";
+  editandoId=id;
+  btnCancelar.style.display="block";
+  fecharGerenciar();
+}
+
+/* APAGAR */
+function apagar(id){
+  if(!confirm("Apagar plantão?")) return;
+  plantoes=plantoes.filter(p=>p.id!==id);
+  salvarLS();
+  atualizarRelatorio();
+  renderTudo();
+}
+
+/* CHECKBOX */
+function toggleCampo(id,campo,valor){
+  let p=plantoes.find(x=>x.id===id);
+  p[campo]=valor;
+  salvarLS();
+  atualizarRelatorio();
+}
+
+/* CANCELAR */
+function cancelarEdicao(){
+  editandoId=null;
+  btnCancelar.style.display="none";
+  data.value=inicio.value=fim.value=obs.value="";
+}
+
+/* VISUALIZAR */
+function abrirVisual(){modalVisual.style.display="flex";renderVisual()}
+function fecharVisual(){modalVisual.style.display="none"}
+
+function renderVisual(){
+  listaVisual.innerHTML="";
+  let mes=filtroVisual.value;
+  [...plantoes]
+    .filter(p=>!mes||p.data.startsWith(mes))
+    .sort((a,b)=>a.data.localeCompare(b.data))
+    .forEach(p=>{
+      listaVisual.innerHTML+=`
+      <div class="item">
+        <b>${p.data.split("-").reverse().join("/")} (${diaSemana(p.data)})</b><br>
+        ${p.local}<br>
+        ${p.inicio} às ${p.fim}
+        ${p.obs?`<div class="obs">📝 ${p.obs}</div>`:""}
+      </div>`;
+    });
+}
+
+/* GERENCIAR */
+function abrirGerenciar(){modalGerenciar.style.display="flex";renderGerenciar()}
+function fecharGerenciar(){modalGerenciar.style.display="none"}
+
+function renderGerenciar(){
+  listaGerenciar.innerHTML="";
+  let q=pesquisaGer.value.toLowerCase();
+  plantoes.filter(p=>{
+    const dataFormatada = p.data.split("-").reverse().join("/");
+    return (
+      p.data.includes(q) ||
+      dataFormatada.includes(q) ||
+      p.local.toLowerCase().includes(q) ||
+      (p.obs||"").toLowerCase().includes(q)
+    );
+  }).forEach(p=>{
+    listaGerenciar.innerHTML+=`
+    <div class="item">
+      <b>${p.data.split("-").reverse().join("/")} (${diaSemana(p.data)})</b> – ${p.local}<br>
+      ${p.inicio} às ${p.fim} (${horas(p.inicio,p.fim)}h)
+      ${p.obs?`<div class="obs">📝 ${p.obs}</div>`:""}
+      <div class="check">
+        <input type="checkbox" ${p.cumprido?"checked":""}
+          onchange="toggleCampo(${p.id},'cumprido',this.checked)">
+        <span>Cumprido</span>
+      </div>
+      <div class="check">
+        <input type="checkbox" ${p.cem?"checked":""}
+          onchange="toggleCampo(${p.id},'cem',this.checked)">
+        <span>Dom/Feriado (100%)</span>
+      </div>
+      <button onclick="editar(${p.id})">Editar</button>
+      <button class="delete" onclick="apagar(${p.id})">Apagar</button>
+    </div>`;
+  });
+}
+
+/* RELATÓRIO */
+function atualizarRelatorio(){
+  let mes=mesRel.value;
+  let h50=0,h100=0;
+  plantoes.forEach(p=>{
+    if(!p.cumprido) return;
+    if(mes && !p.data.startsWith(mes)) return;
+    let h=parseFloat(horas(p.inicio,p.fim));
+    p.cem?h100+=h:h50+=h;
+  });
+  relatorio.innerHTML=`50%: ${h50.toFixed(1)}h<br>100%: ${h100.toFixed(1)}h`;
+}
+
+function renderTudo(){
+  renderVisual();
+  renderGerenciar();
+}
+
+atualizarRelatorio();
+</script>
+</body>
+</html>
