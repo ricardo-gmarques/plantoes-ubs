@@ -67,6 +67,21 @@ button{background:#007aff;color:#fff;border:none}
 }
 
 .item{border-bottom:1px solid #eee;padding:8px 0}
+
+/* TOAST */
+#toast{
+  position:fixed;
+  bottom:30px;
+  left:50%;
+  transform:translateX(-50%);
+  background:#2ecc71;
+  color:#fff;
+  padding:12px 18px;
+  border-radius:14px;
+  font-size:15px;
+  display:none;
+  z-index:999;
+}
 </style>
 </head>
 
@@ -78,13 +93,30 @@ button{background:#007aff;color:#fff;border:none}
 <!-- CADASTRO -->
 <div class="card">
   <input type="date" id="data">
+
   <select id="local">
     <option>São Bento</option>
     <option>Laranjeiras</option>
     <option>Julio de Mesquita</option>
   </select>
+
+  <!-- HORÁRIOS PADRÃO -->
+  <div class="check">
+    <input type="radio" name="horarioPadrao" onclick="setHorario('13-19')">
+    <span>13:00 – 19:00</span>
+  </div>
+  <div class="check">
+    <input type="radio" name="horarioPadrao" onclick="setHorario('19-00')">
+    <span>19:00 – 00:00</span>
+  </div>
+  <div class="check">
+    <input type="radio" name="horarioPadrao" checked onclick="setHorario('livre')">
+    <span>Horário livre</span>
+  </div>
+
   <input type="time" id="inicio">
   <input type="time" id="fim">
+
   <textarea id="obs" placeholder="Observação"></textarea>
 
   <button onclick="salvar()">Salvar</button>
@@ -104,7 +136,7 @@ button{background:#007aff;color:#fff;border:none}
   <div id="relatorio"></div>
 </div>
 
-<!-- MODAL VISUALIZAR -->
+<!-- MODAIS -->
 <div class="modal" id="modalVisual">
   <div class="box">
     <h3>Visualização rápida</h3>
@@ -114,10 +146,10 @@ button{background:#007aff;color:#fff;border:none}
   </div>
 </div>
 
-<!-- MODAL GERENCIAR -->
 <div class="modal" id="modalGerenciar">
   <div class="box">
     <h3>Gerenciar</h3>
+    <input type="month" id="filtroGerMes" onchange="renderGerenciar()">
     <input type="text" id="pesquisaGer" placeholder="Pesquisar data, local, observação" oninput="renderGerenciar()">
     <div id="listaGerenciar"></div>
     <button class="cancel" onclick="fecharGerenciar()">Fechar</button>
@@ -126,12 +158,22 @@ button{background:#007aff;color:#fff;border:none}
 
 </div>
 
+<!-- TOAST -->
+<div id="toast">✅ Plantão salvo</div>
+
 <script>
 let plantoes = JSON.parse(localStorage.getItem("plantoes")||"[]");
 let editandoId=null;
 
 function salvarLS(){
   localStorage.setItem("plantoes",JSON.stringify(plantoes));
+}
+
+/* TOAST */
+function mostrarToast(){
+  const t=document.getElementById("toast");
+  t.style.display="block";
+  setTimeout(()=>t.style.display="none",1800);
 }
 
 /* DIA DA SEMANA */
@@ -149,151 +191,92 @@ function horas(inicio,fim){
   return ((b-a)/60).toFixed(1);
 }
 
+function adicionalNoturno(inicio,fim){
+  let ini=inicio.split(":").map(Number);
+  let f=fim.split(":").map(Number);
+  let inicioMin=ini[0]*60+ini[1];
+  let fimMin=f[0]*60+f[1];
+  if(fimMin<=inicioMin) fimMin+=1440;
+  let inicioCalc=Math.max(inicioMin,22*60);
+  let fimCalc=Math.min(fimMin,24*60);
+  return Math.max(0,(fimCalc-inicioCalc)/60);
+}
+
+/* HORÁRIO PADRÃO */
+function setHorario(tipo){
+  if(tipo==="13-19"){inicio.value="13:00";fim.value="19:00";inicio.disabled=fim.disabled=true}
+  else if(tipo==="19-00"){inicio.value="19:00";fim.value="00:00";inicio.disabled=fim.disabled=true}
+  else{inicio.disabled=fim.disabled=false;inicio.value="";fim.value=""}
+}
+
 /* SALVAR */
 function salvar(){
   if(!data.value||!inicio.value||!fim.value) return alert("Preencha tudo");
 
   if(editandoId){
-    let p=plantoes.find(x=>x.id===editandoId);
-    Object.assign(p,{
-      data:data.value,
-      local:local.value,
-      inicio:inicio.value,
-      fim:fim.value,
-      obs:obs.value
+    Object.assign(plantoes.find(x=>x.id===editandoId),{
+      data:data.value,local:local.value,inicio:inicio.value,fim:fim.value,obs:obs.value
     });
   } else {
     plantoes.push({
-      id:Date.now(),
-      data:data.value,
-      local:local.value,
-      inicio:inicio.value,
-      fim:fim.value,
-      obs:obs.value,
-      cumprido:false,
-      cem:false
+      id:Date.now(),data:data.value,local:local.value,
+      inicio:inicio.value,fim:fim.value,obs:obs.value,
+      cumprido:false,cem:false
     });
   }
 
   salvarLS();
+  mostrarToast();
   cancelarEdicao();
   atualizarRelatorio();
   renderTudo();
 }
 
-/* EDITAR */
-function editar(id){
-  let p=plantoes.find(x=>x.id===id);
-  data.value=p.data;
-  local.value=p.local;
-  inicio.value=p.inicio;
-  fim.value=p.fim;
-  obs.value=p.obs||"";
-  editandoId=id;
-  btnCancelar.style.display="block";
-  fecharGerenciar();
-}
-
-/* APAGAR */
-function apagar(id){
-  if(!confirm("Apagar plantão?")) return;
-  plantoes=plantoes.filter(p=>p.id!==id);
-  salvarLS();
-  atualizarRelatorio();
-  renderTudo();
-}
-
-/* CHECKBOX */
-function toggleCampo(id,campo,valor){
-  let p=plantoes.find(x=>x.id===id);
-  p[campo]=valor;
-  salvarLS();
-  atualizarRelatorio();
-}
-
-/* CANCELAR */
-function cancelarEdicao(){
-  editandoId=null;
-  btnCancelar.style.display="none";
-  data.value=inicio.value=fim.value=obs.value="";
-}
-
-/* VISUALIZAR */
+/* RESTANTE IGUAL AO SEU */
+function editar(id){let p=plantoes.find(x=>x.id===id);
+  data.value=p.data;local.value=p.local;inicio.value=p.inicio;fim.value=p.fim;obs.value=p.obs||"";
+  inicio.disabled=fim.disabled=false;editandoId=id;btnCancelar.style.display="block";fecharGerenciar();}
+function apagar(id){if(!confirm("Apagar plantão?"))return;
+  plantoes=plantoes.filter(p=>p.id!==id);salvarLS();atualizarRelatorio();renderTudo();}
+function toggleCampo(id,campo,valor){plantoes.find(x=>x.id===id)[campo]=valor;salvarLS();atualizarRelatorio();}
+function cancelarEdicao(){editandoId=null;btnCancelar.style.display="none";data.value=inicio.value=fim.value=obs.value="";inicio.disabled=fim.disabled=false;}
 function abrirVisual(){modalVisual.style.display="flex";renderVisual()}
 function fecharVisual(){modalVisual.style.display="none"}
-
 function renderVisual(){
   listaVisual.innerHTML="";
-  let mes=filtroVisual.value;
-  [...plantoes]
-    .filter(p=>!mes||p.data.startsWith(mes))
-    .sort((a,b)=>a.data.localeCompare(b.data))
-    .forEach(p=>{
-      listaVisual.innerHTML+=`
-      <div class="item">
-        <b>${p.data.split("-").reverse().join("/")} (${diaSemana(p.data)})</b><br>
-        ${p.local}<br>
-        ${p.inicio} às ${p.fim}
-        ${p.obs?`<div class="obs">📝 ${p.obs}</div>`:""}
-      </div>`;
-    });
-}
-
-/* GERENCIAR */
+  [...plantoes].filter(p=>!filtroVisual.value||p.data.startsWith(filtroVisual.value))
+  .sort((a,b)=>a.data.localeCompare(b.data))
+  .forEach(p=>listaVisual.innerHTML+=`
+  <div class="item"><b>${p.data.split("-").reverse().join("/")} (${diaSemana(p.data)})</b><br>
+  ${p.local}<br>${p.inicio} às ${p.fim}${p.obs?`<div class="obs">📝 ${p.obs}</div>`:""}</div>`);}
 function abrirGerenciar(){modalGerenciar.style.display="flex";renderGerenciar()}
 function fecharGerenciar(){modalGerenciar.style.display="none"}
-
 function renderGerenciar(){
   listaGerenciar.innerHTML="";
-  let q=pesquisaGer.value.toLowerCase();
-  plantoes.filter(p=>{
-    const dataFormatada = p.data.split("-").reverse().join("/");
-    return (
-      p.data.includes(q) ||
-      dataFormatada.includes(q) ||
-      p.local.toLowerCase().includes(q) ||
-      (p.obs||"").toLowerCase().includes(q)
-    );
-  }).forEach(p=>{
-    listaGerenciar.innerHTML+=`
-    <div class="item">
-      <b>${p.data.split("-").reverse().join("/")} (${diaSemana(p.data)})</b> – ${p.local}<br>
-      ${p.inicio} às ${p.fim} (${horas(p.inicio,p.fim)}h)
-      ${p.obs?`<div class="obs">📝 ${p.obs}</div>`:""}
-      <div class="check">
-        <input type="checkbox" ${p.cumprido?"checked":""}
-          onchange="toggleCampo(${p.id},'cumprido',this.checked)">
-        <span>Cumprido</span>
-      </div>
-      <div class="check">
-        <input type="checkbox" ${p.cem?"checked":""}
-          onchange="toggleCampo(${p.id},'cem',this.checked)">
-        <span>Dom/Feriado (100%)</span>
-      </div>
-      <button onclick="editar(${p.id})">Editar</button>
-      <button class="delete" onclick="apagar(${p.id})">Apagar</button>
-    </div>`;
-  });
-}
-
-/* RELATÓRIO */
+  let q=pesquisaGer.value.toLowerCase(),mes=filtroGerMes.value;
+  plantoes.filter(p=>(!mes||p.data.startsWith(mes))&&
+  (p.data.includes(q)||p.local.toLowerCase().includes(q)||(p.obs||"").toLowerCase().includes(q)))
+  .forEach(p=>listaGerenciar.innerHTML+=`
+  <div class="item"><b>${p.data.split("-").reverse().join("/")} (${diaSemana(p.data)})</b> – ${p.local}<br>
+  ${p.inicio} às ${p.fim} (${horas(p.inicio,p.fim)}h)
+  ${p.obs?`<div class="obs">📝 ${p.obs}</div>`:""}
+  <div class="check"><input type="checkbox" ${p.cumprido?"checked":""}
+  onchange="toggleCampo(${p.id},'cumprido',this.checked)"><span>Cumprido</span></div>
+  <div class="check"><input type="checkbox" ${p.cem?"checked":""}
+  onchange="toggleCampo(${p.id},'cem',this.checked)"><span>Dom/Feriado (100%)</span></div>
+  <button onclick="editar(${p.id})">Editar</button>
+  <button class="delete" onclick="apagar(${p.id})">Apagar</button></div>`);}
 function atualizarRelatorio(){
-  let mes=mesRel.value;
-  let h50=0,h100=0;
+  let mes=mesRel.value,h50=0,h100=0,a50=0,a100=0;
   plantoes.forEach(p=>{
-    if(!p.cumprido) return;
-    if(mes && !p.data.startsWith(mes)) return;
-    let h=parseFloat(horas(p.inicio,p.fim));
-    p.cem?h100+=h:h50+=h;
+    if(!p.cumprido||mes&&!p.data.startsWith(mes))return;
+    let h=parseFloat(horas(p.inicio,p.fim)),a=adicionalNoturno(p.inicio,p.fim);
+    p.cem?(h100+=h,a100+=a):(h50+=h,a50+=a);
   });
-  relatorio.innerHTML=`50%: ${h50.toFixed(1)}h<br>100%: ${h100.toFixed(1)}h`;
+  relatorio.innerHTML=`50%: ${h50.toFixed(1)}h <span class="obs">(Adic: ${a50.toFixed(1)}h)</span><br>
+  100%: ${h100.toFixed(1)}h <span class="obs">(Adic: ${a100.toFixed(1)}h)</span>`;
 }
-
-function renderTudo(){
-  renderVisual();
-  renderGerenciar();
-}
-
+function renderTudo(){renderVisual();renderGerenciar()}
 atualizarRelatorio();
 </script>
 </body>
